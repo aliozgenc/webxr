@@ -69,13 +69,18 @@
         }
 
         function updateVideoSize() {
-            const aspectRatio = window.innerWidth / window.innerHeight;
-            const videoWidth = 2 * aspectRatio; // Ekranın tam genişliği
-            const videoHeight = 2; // Yükseklik sabit
+            // Kullanıcı ekranının boyutunu al
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const aspectRatio = width / height;
+
+            // Video düzleminin boyutunu ayarla
             const videoMesh = scene.children.find(child => child instanceof THREE.Mesh && child.material.map instanceof THREE.VideoTexture);
 
             if (videoMesh) {
-                videoMesh.scale.set(videoWidth, videoHeight, 1); // Düzlemi tam boyuta ayarla
+                // Düzlemi tam ekran kaplayacak şekilde ayarlayın
+                videoMesh.scale.set(aspectRatio * 2, 2, 1); // Genişlik ve yükseklik ayarı
+                videoMesh.position.set(0, 0, -1); // Düzlemi sahne merkezine yerleştir
             }
         }
 
