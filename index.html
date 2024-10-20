@@ -5,15 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Deneyimi</title>
     <style>
-        body { margin: 0; }
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; }
         canvas { display: block; }
+        button { margin: 20px; padding: 10px; font-size: 16px; }
     </style>
 </head>
 <body>
+    <button id="createCubeButton">Yeni Küp Oluştur</button>
     <script type="module">
         import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.module.js';
 
-        let scene, camera, renderer, cube, videoMesh;
+        let scene, camera, renderer, videoMesh;
+        const cubes = []; // Küpleri saklamak için dizi
 
         function init() {
             scene = new THREE.Scene();
@@ -23,12 +26,6 @@
             renderer = new THREE.WebGLRenderer({ alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
-
-            // Küp oluştur
-            const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-            cube = new THREE.Mesh(geometry, material);
-            scene.add(cube);
 
             // Video elementini oluştur
             const video = document.createElement('video');
@@ -46,7 +43,7 @@
                     const videoTexture = new THREE.VideoTexture(video);
                     const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
                     const videoGeometry = new THREE.PlaneGeometry(1, 1); // Video boyutu
-                    videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+                    const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
                     videoMesh.position.z = -1; // Küpün arkasına yerleştir
                     scene.add(videoMesh);
                 })
@@ -61,14 +58,34 @@
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
 
+            // Buton için tıklama olayını ayarla
+            document.getElementById('createCubeButton').addEventListener('click', createCube);
+
             animate();
+        }
+
+        function createCube() {
+            // Rastgele bir pozisyon belirle
+            const x = (Math.random() - 0.5) * 2; // -1 ile 1 arasında
+            const y = (Math.random() - 0.5) * 2; // -1 ile 1 arasında
+            const z = (Math.random() - 0.5) * 2; // -1 ile 1 arasında
+
+            // Yeni bir küp oluştur
+            const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const material = new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff });
+            const cube = new THREE.Mesh(geometry, material);
+            cube.position.set(x, y, z); // Rastgele pozisyonu ayarla
+            scene.add(cube);
+            cubes.push(cube); // Küpü dizide sakla
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            // Küpü döndür
-            cube.rotation.x += 0.01;
-            cube.rotation.y += 0.01;
+            // Tüm küpleri döndür
+            cubes.forEach(cube => {
+                cube.rotation.x += 0.01;
+                cube.rotation.y += 0.01;
+            });
             renderer.render(scene, camera);
         }
 
