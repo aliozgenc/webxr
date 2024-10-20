@@ -13,7 +13,7 @@
     <script type="module">
         import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.module.js';
 
-        let scene, camera, renderer, cube;
+        let scene, camera, renderer, cube, videoMesh;
 
         function init() {
             scene = new THREE.Scene();
@@ -29,6 +29,30 @@
             const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
             cube = new THREE.Mesh(geometry, material);
             scene.add(cube);
+
+            // Video elementini oluştur
+            const video = document.createElement('video');
+            video.autoplay = true;
+            video.muted = true; // Ses kapalı
+            video.playsInline = true; // Mobil cihazlarda düzgün oynatılması için
+
+            // WebRTC ile video akışını başlat
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    video.srcObject = stream;
+                    video.play();
+
+                    // Video akışını Three.js sahnesinde kullanmak için
+                    const videoTexture = new THREE.VideoTexture(video);
+                    const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+                    const videoGeometry = new THREE.PlaneGeometry(1, 1); // Video boyutu
+                    videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+                    videoMesh.position.z = -1; // Küpün arkasına yerleştir
+                    scene.add(videoMesh);
+                })
+                .catch(err => {
+                    console.error('Kamera erişimi hatası:', err);
+                });
 
             // Pencere boyutu değiştiğinde render boyutunu güncelle
             window.addEventListener('resize', () => {
@@ -47,19 +71,6 @@
             cube.rotation.y += 0.01;
             renderer.render(scene, camera);
         }
-
-        // WebRTC ile video akışını başlat
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                const video = document.createElement('video');
-                video.srcObject = stream;
-                video.play();
-
-                // Video akışını Three.js sahnesinde kullanmak için bir çözüm ekleyebilirsiniz
-            })
-            .catch(err => {
-                console.error('Kamera erişimi hatası:', err);
-            });
 
         init();
     </script>
