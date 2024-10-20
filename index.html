@@ -42,14 +42,13 @@
                     // Video akışını Three.js sahnesinde kullanmak için
                     const videoTexture = new THREE.VideoTexture(video);
                     const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
-                    const videoGeometry = new THREE.PlaneGeometry(2, 2); // Düzlemi tam boyut için ayarlayın
+                    const videoGeometry = new THREE.PlaneGeometry(2, 2); // Düzlemi ayarlayın
                     const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
                     videoMesh.position.z = -1; // Kamera arkasında yerleştir
                     scene.add(videoMesh);
 
-                    // Video düzlemini tam boyutlu olarak ayarlayın
-                    const aspectRatio = window.innerWidth / window.innerHeight;
-                    videoGeometry.scale(aspectRatio, 1, 1);
+                    // Video düzlemini tam ekran yapmak için
+                    updateVideoSize();
                 })
                 .catch(err => {
                     console.error('Kamera erişimi hatası:', err);
@@ -60,12 +59,24 @@
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
+                updateVideoSize();
             });
 
             // Buton için tıklama olayını ayarla
             document.getElementById('createCubeButton').addEventListener('click', createCube);
 
             animate();
+        }
+
+        function updateVideoSize() {
+            const aspectRatio = window.innerWidth / window.innerHeight;
+            const videoWidth = 2 * aspectRatio; // Ekranın tam genişliği
+            const videoHeight = 2; // Yükseklik sabit
+            const videoMesh = scene.children.find(child => child instanceof THREE.Mesh && child.material.map instanceof THREE.VideoTexture);
+
+            if (videoMesh) {
+                videoMesh.scale.set(videoWidth, videoHeight, 1); // Düzlemi tam boyuta ayarla
+            }
         }
 
         function createCube() {
