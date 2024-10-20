@@ -15,7 +15,7 @@
     <script type="module">
         import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.module.js';
 
-        let scene, camera, renderer, videoMesh;
+        let scene, camera, renderer;
         const cubes = []; // Küpleri saklamak için dizi
 
         function init() {
@@ -43,9 +43,13 @@
                     const videoTexture = new THREE.VideoTexture(video);
                     const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
                     const videoGeometry = new THREE.PlaneGeometry(2, 2); // Düzlemi tam boyut için ayarlayın
-                    videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+                    const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
                     videoMesh.position.z = -1; // Kamera arkasında yerleştir
                     scene.add(videoMesh);
+
+                    // Video düzlemini tam boyutlu olarak ayarlayın
+                    const aspectRatio = window.innerWidth / window.innerHeight;
+                    videoGeometry.scale(aspectRatio, 1, 1);
                 })
                 .catch(err => {
                     console.error('Kamera erişimi hatası:', err);
