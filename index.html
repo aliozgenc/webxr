@@ -42,9 +42,9 @@
                     // Video akışını Three.js sahnesinde kullanmak için
                     const videoTexture = new THREE.VideoTexture(video);
                     const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
-                    const videoGeometry = new THREE.PlaneGeometry(1, 1); // Video boyutu
-                    const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
-                    videoMesh.position.z = -1; // Küpün arkasına yerleştir
+                    const videoGeometry = new THREE.PlaneGeometry(2, 2); // Düzlemi tam boyut için ayarlayın
+                    videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+                    videoMesh.position.z = -1; // Kamera arkasında yerleştir
                     scene.add(videoMesh);
                 })
                 .catch(err => {
