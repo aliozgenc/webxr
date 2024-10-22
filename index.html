@@ -182,6 +182,7 @@
                     const worldIntersectionPoint = intersects[0].point;
                     box.position.copy(worldIntersectionPoint);
 
+                    // Kutunun dünya pozisyonu ve rotasyonu sabitleniyor
                     box.userData.worldPosition = worldIntersectionPoint.clone();
                     box.userData.worldRotation = this.worldRotation.clone();
 
@@ -212,13 +213,7 @@
             animate() {
                 requestAnimationFrame(() => this.animate());
 
-                // Kutu hareketleri güncelleniyor
-                this.boxes.forEach(box => {
-                    if (box.userData.worldPosition) {
-                        box.position.copy(box.userData.worldPosition);
-                        box.quaternion.copy(box.userData.worldRotation);
-                    }
-                });
+                // Kutu pozisyonu ve rotasyonu sabit kaldığı için her animasyon döngüsünde güncellenmiyor
 
                 this.renderer.render(this.scene, this.camera);
             }
