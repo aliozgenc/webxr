@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Web Ap2232p</title>
+    <title>AR Web Appwwww</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
@@ -19,6 +19,20 @@
             border-radius: 5px;
             font-size: 18px;
             z-index: 100;
+            display: none; /* Hidden initially */
+        }
+        #start-button {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 40px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 20px;
+            z-index: 100;
         }
         #video-feed {
             position: fixed;
@@ -28,10 +42,12 @@
             height: 100%;
             object-fit: cover;
             z-index: -1;
+            display: none; /* Hidden initially */
         }
     </style>
 </head>
 <body>
+    <button id="start-button">Start AR</button>
     <video id="video-feed" playsinline autoplay></video>
     <button id="hit-button">Hit</button>
     <script>
@@ -47,13 +63,13 @@
                 this.lastAccel = { x: 0, y: 0, z: 0 };
                 this.velocity = { x: 0, y: 0, z: 0 };
                 this.timestamp = null;
-                
-                this.init();
-                this.setupEventListeners();
-                this.animate();
+                this.initialized = false;
             }
 
-            init() {
+            async init() {
+                if (this.initialized) return;
+                this.initialized = true;
+
                 // Setup renderer
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
                 this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -80,6 +96,9 @@
                 this.plane = new THREE.Mesh(planeGeometry, planeMaterial);
                 this.plane.rotateX(-Math.PI / 2);
                 this.scene.add(this.plane);
+
+                this.setupEventListeners();
+                this.animate();
             }
 
             setupEventListeners() {
@@ -167,6 +186,21 @@
 
             async requestPermissions() {
                 try {
+                    // Request motion and orientation permissions first
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        const orientationPermission = await DeviceOrientationEvent.requestPermission();
+                        if (orientationPermission !== 'granted') {
+                            throw new Error('Orientation access denied');
+                        }
+                    }
+
+                    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                        const motionPermission = await DeviceMotionEvent.requestPermission();
+                        if (motionPermission !== 'granted') {
+                            throw new Error('Motion access denied');
+                        }
+                    }
+
                     // Get list of available video devices
                     const devices = await navigator.mediaDevices.enumerateDevices();
                     const videoDevices = devices.filter(device => device.kind === 'videoinput');
@@ -202,24 +236,26 @@
                         };
                     });
 
-                    // Request motion sensor permissions if needed
-                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                        await DeviceOrientationEvent.requestPermission();
-                    }
-                    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                        await DeviceMotionEvent.requestPermission();
-                    }
+                    // Show video and hit button, hide start button
+                    video.style.display = 'block';
+                    document.getElementById('hit-button').style.display = 'block';
+                    document.getElementById('start-button').style.display = 'none';
+
+                    // Initialize Three.js scene
+                    await this.init();
 
                 } catch (error) {
                     console.error('Error accessing camera or sensors:', error);
-                    alert('Error accessing camera: ' + error.message);
+                    alert('Error accessing camera or sensors: ' + error.message);
                 }
             }
         }
 
-        // Start the app when page is loaded
-        window.addEventListener('load', () => {
-            const app = new ARApp();
+        // Create app instance
+        const app = new ARApp();
+
+        // Add click handler to start button
+        document.getElementById('start-button').addEventListener('click', () => {
             app.requestPermissions();
         });
     </script>
