@@ -100,8 +100,6 @@
                 // Eğer önceden kaydedilmiş noktalar varsa eşleştir
                 if (this.previousKeypoints.size() > 0) {
                     this.matcher.match(this.descriptors, this.previousDescriptors, this.matches);
-
-                    // Homografi hesapla ve düzlem tespit et
                     this.detectPlanes();
                 }
 
@@ -124,14 +122,14 @@
                     dstPoints.push(kp2);
                 }
 
-                // Homografi matrisi hesapla
+                // Homografi hesapla
                 let srcMat = cv.matFromArray(srcPoints.length, 1, cv.CV_32FC2, [].concat(...srcPoints));
                 let dstMat = cv.matFromArray(dstPoints.length, 1, cv.CV_32FC2, [].concat(...dstPoints));
                 let homography = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
 
                 if (!homography.empty()) {
-                    // Homografi ile tespit edilen düzlemi üç.js sahnesine yerleştir
-                    this.addPlane(homography);
+                    // Düzlemi tespit et ve işleme ekle
+                    this.addPlane();
                 }
 
                 // Hafıza temizleme
@@ -140,14 +138,13 @@
                 homography.delete();
             }
 
-            addPlane(homography) {
-                // Burada düzlemi oluşturabilir ve sahneye ekleyebiliriz
-                // Örneğin, homografi matrisine göre bir üç.js plane mesh ekleyebiliriz.
+            addPlane() {
                 const planeGeometry = new THREE.PlaneGeometry(5, 5);
                 const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
                 const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-                plane.position.set(0, 0, -5); // Sabit bir düzlem pozisyonu, homografi verilerine göre değiştirilebilir.
+                plane.position.set(0, 0, -5); // Düzlem pozisyonu
                 this.detectedPlanes.push(plane);
+                scene.add(plane); // Three.js sahnesine ekle
             }
 
             animate() {
