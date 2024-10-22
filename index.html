@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zeminde Sabit Marker3333</title>
+    <title>AR Simülasyonu</title>
     <style>
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
@@ -13,7 +13,9 @@
     <script type="module">
         import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.module.js';
 
-        let scene, camera, renderer, raycaster, marker, plane;
+        let scene, camera, renderer, marker, plane;
+        let worldMatrix = new THREE.Matrix4();
+        let deviceMatrix = new THREE.Matrix4();
 
         function init() {
             // Sahneyi, kamerayı ve render'ı oluştur
@@ -29,7 +31,7 @@
             const planeGeometry = new THREE.PlaneGeometry(5, 5);
             const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, side: THREE.DoubleSide, visible: false }); // Görünmez düzlem
             plane = new THREE.Mesh(planeGeometry, planeMaterial);
-            plane.rotation.x = -Math.PI / 2; // Yatay düzlem oluştur
+            plane.rotation.x = -Math.PI / 2; // Yatay düzlem
             plane.position.y = 0; // Zemin yüksekliği
             scene.add(plane);
 
@@ -38,18 +40,15 @@
             light.position.set(5, 10, 7.5);
             scene.add(light);
 
-            // Raycaster (çarpışma tespiti için)
-            raycaster = new THREE.Raycaster();
-
-            // İşaretleyici (marker)
-            const markerGeometry = new THREE.CircleGeometry(0.1, 32); // Daire şeklinde marker
+            // Marker (işaretleyici)
+            const markerGeometry = new THREE.CircleGeometry(0.1, 32);
             const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
             marker = new THREE.Mesh(markerGeometry, markerMaterial);
-            marker.rotation.x = -Math.PI / 2; // Yere paralel
-            marker.visible = false; // Başlangıçta görünmez
+            marker.rotation.x = -Math.PI / 2;
+            marker.visible = false; // İlk başta görünmez
             scene.add(marker);
 
-            // Arka kamerayı başlat (WebRTC)
+            // Arka kamerayı başlat
             const video = document.createElement('video');
             video.autoplay = true;
             video.muted = true;
@@ -68,17 +67,15 @@
                 const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
                 const videoGeometry = new THREE.PlaneGeometry(2, 2);
                 const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
-                videoMesh.position.z = -2; // Videoyu sahneye yerleştir
+                videoMesh.position.z = -2;
                 scene.add(videoMesh);
 
                 updateVideoSize();
             })
             .catch(err => console.error('Kamera hatası:', err));
 
-            // Tıklama olayını dinle
-            window.addEventListener('click', onClick);
-
-            // Ekran boyutu değiştiğinde yeniden ayarla
+            // Cihazın hareketini takip et
+            window.addEventListener('deviceorientation', onDeviceOrientationChange);
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
@@ -89,41 +86,31 @@
             animate();
         }
 
-        // Tıklama veya dokunma işlemi
-        function onClick(event) {
-            const pointer = new THREE.Vector2();
+        function onDeviceOrientationChange(event) {
+            const alpha = event.alpha ? THREE.MathUtils.degToRad(event.alpha) : 0; // Z ekseni (yön)
+            const beta = event.beta ? THREE.MathUtils.degToRad(event.beta) : 0; // X ekseni (yukarı-aşağı)
+            const gamma = event.gamma ? THREE.MathUtils.degToRad(event.gamma) : 0; // Y ekseni (sol-sağ)
 
-            // Tıklama pozisyonunu normalize et
-            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-            pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            // Euler açıları ile cihazın yönelimini hesapla
+            const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+            const quaternion = new THREE.Quaternion().setFromEuler(euler);
+            deviceMatrix.makeRotationFromQuaternion(quaternion);
 
-            // Raycaster ile ışın gönder (kameradan düzleme doğru)
-            raycaster.setFromCamera(pointer, camera);
-
-            // Düzleme çarpışmaları kontrol et
-            const intersects = raycaster.intersectObject(plane);
-
-            if (intersects.length > 0) {
-                const intersectPoint = intersects[0].point;
-
-                // Marker'ı çarpışma noktasına yerleştir ve görünür yap
-                marker.position.copy(intersectPoint);
-                marker.visible = true; // Marker'ı görünür yap
-            }
+            // Marker'ı dünya koordinatında tutacak şekilde cihazın hareketini güncelle
+            marker.matrix.copy(worldMatrix).multiply(deviceMatrix);
+            marker.matrix.decompose(marker.position, marker.quaternion, marker.scale);
         }
 
-        // Video boyutunu güncelle
         function updateVideoSize() {
             const aspectRatio = window.innerWidth / window.innerHeight;
             const videoMesh = scene.children.find(child => child instanceof THREE.Mesh && child.material.map instanceof THREE.VideoTexture);
 
             if (videoMesh) {
-                videoMesh.scale.set(aspectRatio * 2, 2, 1); // Videoyu boyutlandır
-                videoMesh.position.set(0, 0, -2); // Kameranın arkasına yerleştir
+                videoMesh.scale.set(aspectRatio * 2, 2, 1);
+                videoMesh.position.set(0, 0, -2);
             }
         }
 
-        // Animasyon döngüsü
         function animate() {
             requestAnimationFrame(animate);
             renderer.render(scene, camera);
