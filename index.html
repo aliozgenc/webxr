@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Web Appwwww</title>
+    <title>AR Web App</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
@@ -19,7 +19,7 @@
             border-radius: 5px;
             font-size: 18px;
             z-index: 100;
-            display: none; /* Hidden initially */
+            display: none;
         }
         #start-button {
             position: fixed;
@@ -42,7 +42,17 @@
             height: 100%;
             object-fit: cover;
             z-index: -1;
-            display: none; /* Hidden initially */
+            display: none;
+        }
+        #debug-info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            font-family: monospace;
+            z-index: 100;
         }
     </style>
 </head>
@@ -50,6 +60,7 @@
     <button id="start-button">Start AR</button>
     <video id="video-feed" playsinline autoplay></video>
     <button id="hit-button">Hit</button>
+    <div id="debug-info"></div>
     <script>
         class ARApp {
             constructor() {
@@ -58,32 +69,39 @@
                 this.renderer = new THREE.WebGLRenderer({ alpha: true });
                 this.boxes = [];
                 this.raycaster = new THREE.Raycaster();
-                this.orientation = { x: 0, y: 0, z: 0 };
-                this.position = { x: 0, y: 0, z: 0 };
-                this.lastAccel = { x: 0, y: 0, z: 0 };
-                this.velocity = { x: 0, y: 0, z: 0 };
-                this.timestamp = null;
                 this.initialized = false;
+                
+                // World state
+                this.worldRotation = new THREE.Quaternion();
+                this.worldPosition = new THREE.Vector3();
+                this.initialRotation = null;
+                
+                // Motion tracking
+                this.lastGravity = new THREE.Vector3(0, -9.81, 0);
+                this.velocity = new THREE.Vector3();
+                this.lastTime = null;
+                
+                // Debugging
+                this.debugElement = document.getElementById('debug-info');
             }
 
             async init() {
                 if (this.initialized) return;
                 this.initialized = true;
 
-                // Setup renderer
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
                 this.renderer.setPixelRatio(window.devicePixelRatio);
                 document.body.appendChild(this.renderer.domElement);
 
-                // Setup camera
-                this.camera.position.z = 5;
+                // Create a coordinate system helper
+                const axesHelper = new THREE.AxesHelper(1);
+                this.scene.add(axesHelper);
 
-                // Add ambient light
+                // Setup lights
                 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
                 this.scene.add(ambientLight);
 
-                // Add directional light
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
                 directionalLight.position.set(0, 1, 0);
                 this.scene.add(directionalLight);
 
@@ -102,56 +120,83 @@
             }
 
             setupEventListeners() {
-                // Device orientation
                 window.addEventListener('deviceorientation', (event) => {
-                    this.orientation.x = event.beta * Math.PI / 180;
-                    this.orientation.y = event.gamma * Math.PI / 180;
-                    this.orientation.z = event.alpha * Math.PI / 180;
-                    
-                    // Update camera rotation
-                    this.camera.rotation.x = this.orientation.x;
-                    this.camera.rotation.y = this.orientation.y;
-                    this.camera.rotation.z = this.orientation.z;
+                    if (!this.initialRotation) {
+                        this.initialRotation = new THREE.Euler(
+                            event.beta * Math.PI / 180,
+                            event.gamma * Math.PI / 180,
+                            event.alpha * Math.PI / 180,
+                            'ZXY'
+                        );
+                    }
+
+                    // Convert orientation to radians
+                    const alpha = event.alpha * Math.PI / 180;
+                    const beta = event.beta * Math.PI / 180;
+                    const gamma = event.gamma * Math.PI / 180;
+
+                    // Create rotation matrix from device orientation
+                    const rotation = new THREE.Euler(beta, gamma, alpha, 'ZXY');
+                    this.worldRotation.setFromEuler(rotation);
+
+                    // Apply to camera
+                    this.camera.quaternion.copy(this.worldRotation);
+
+                    // Update debug info
+                    this.updateDebugInfo({
+                        orientation: { alpha: event.alpha, beta: event.beta, gamma: event.gamma }
+                    });
                 }, true);
 
-                // Device motion
                 window.addEventListener('devicemotion', (event) => {
-                    const acceleration = event.accelerationIncludingGravity;
-                    
-                    if (!this.timestamp) {
-                        this.timestamp = Date.now();
+                    const now = performance.now();
+                    if (!this.lastTime) {
+                        this.lastTime = now;
                         return;
                     }
 
-                    const deltaTime = (Date.now() - this.timestamp) / 1000;
-                    this.timestamp = Date.now();
+                    const deltaTime = (now - this.lastTime) / 1000; // Convert to seconds
+                    this.lastTime = now;
 
-                    // Basic position tracking using double integration
-                    const alpha = 0.8;
-                    this.lastAccel.x = alpha * this.lastAccel.x + (1 - alpha) * acceleration.x;
-                    this.lastAccel.y = alpha * this.lastAccel.y + (1 - alpha) * (acceleration.y - 9.81);
-                    this.lastAccel.z = alpha * this.lastAccel.z + (1 - alpha) * acceleration.z;
+                    // Get acceleration including gravity
+                    const acc = event.accelerationIncludingGravity;
+                    if (!acc || acc.x === null) return;
+
+                    // Create acceleration vector
+                    const acceleration = new THREE.Vector3(acc.x, acc.y, -acc.z);
+
+                    // Remove gravity from acceleration
+                    acceleration.sub(this.lastGravity);
+
+                    // Transform acceleration from device space to world space
+                    acceleration.applyQuaternion(this.worldRotation);
 
                     // Update velocity
-                    this.velocity.x += this.lastAccel.x * deltaTime;
-                    this.velocity.y += this.lastAccel.y * deltaTime;
-                    this.velocity.z += this.lastAccel.z * deltaTime;
+                    this.velocity.add(acceleration.multiplyScalar(deltaTime));
+
+                    // Apply damping to prevent drift
+                    const damping = 0.95;
+                    this.velocity.multiplyScalar(damping);
 
                     // Update position
-                    this.position.x += this.velocity.x * deltaTime;
-                    this.position.y += this.velocity.y * deltaTime;
-                    this.position.z += this.velocity.z * deltaTime;
+                    const deltaPosition = this.velocity.clone().multiplyScalar(deltaTime);
+                    this.worldPosition.add(deltaPosition);
 
-                    // Apply to camera position
-                    this.camera.position.x = this.position.x;
-                    this.camera.position.y = this.position.y;
-                    this.camera.position.z = this.position.z;
+                    // Apply to camera
+                    this.camera.position.copy(this.worldPosition);
+
+                    // Update debug info
+                    this.updateDebugInfo({
+                        position: this.worldPosition.toArray(),
+                        velocity: this.velocity.toArray(),
+                        acceleration: acceleration.toArray()
+                    });
                 }, true);
 
-                // Hit button
-                document.getElementById('hit-button').addEventListener('click', () => this.placeBox());
+                document.getElementById('hit-button').addEventListener('click', () => {
+                    this.placeBox();
+                });
 
-                // Window resize
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth / window.innerHeight;
                     this.camera.updateProjectionMatrix();
@@ -171,22 +216,48 @@
                     const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
                     const box = new THREE.Mesh(geometry, material);
                     
-                    // Place box at intersection point
-                    box.position.copy(intersects[0].point);
+                    // Place box at intersection point in world space
+                    const worldIntersectionPoint = intersects[0].point;
+                    box.position.copy(worldIntersectionPoint);
+                    
+                    // Store world position and rotation
+                    box.userData.worldPosition = worldIntersectionPoint.clone();
+                    box.userData.worldRotation = this.worldRotation.clone();
                     
                     this.scene.add(box);
                     this.boxes.push(box);
+
+                    // Update debug info
+                    this.updateDebugInfo({
+                        lastBoxPosition: worldIntersectionPoint.toArray()
+                    });
                 }
+            }
+
+            updateDebugInfo(info) {
+                this.debugElement.innerHTML = `
+                    Position: ${JSON.stringify(info.position || []).slice(0, 50)}<br>
+                    Orientation: ${JSON.stringify(info.orientation || {}).slice(0, 50)}<br>
+                    Last Box: ${JSON.stringify(info.lastBoxPosition || []).slice(0, 50)}
+                `;
             }
 
             animate() {
                 requestAnimationFrame(() => this.animate());
+                
+                // Update boxes relative to world space
+                this.boxes.forEach(box => {
+                    if (box.userData.worldPosition) {
+                        box.position.copy(box.userData.worldPosition);
+                        box.quaternion.copy(box.userData.worldRotation);
+                    }
+                });
+
                 this.renderer.render(this.scene, this.camera);
             }
 
             async requestPermissions() {
                 try {
-                    // Request motion and orientation permissions first
                     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                         const orientationPermission = await DeviceOrientationEvent.requestPermission();
                         if (orientationPermission !== 'granted') {
@@ -201,18 +272,15 @@
                         }
                     }
 
-                    // Get list of available video devices
                     const devices = await navigator.mediaDevices.enumerateDevices();
                     const videoDevices = devices.filter(device => device.kind === 'videoinput');
                     
-                    // Find back camera
                     const backCamera = videoDevices.find(device => 
                         device.label.toLowerCase().includes('back') || 
                         device.label.toLowerCase().includes('rear') ||
                         device.label.toLowerCase().includes('environment')
                     );
 
-                    // Configure constraints for back camera
                     const constraints = {
                         video: {
                             deviceId: backCamera ? { exact: backCamera.deviceId } : undefined,
@@ -222,26 +290,21 @@
                         }
                     };
 
-                    // Get video stream
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
                     
-                    // Set up video element
                     const video = document.getElementById('video-feed');
                     video.srcObject = stream;
                     
-                    // Wait for video to be ready
                     await new Promise((resolve) => {
                         video.onloadedmetadata = () => {
                             video.play().then(resolve);
                         };
                     });
 
-                    // Show video and hit button, hide start button
                     video.style.display = 'block';
                     document.getElementById('hit-button').style.display = 'block';
                     document.getElementById('start-button').style.display = 'none';
 
-                    // Initialize Three.js scene
                     await this.init();
 
                 } catch (error) {
@@ -251,10 +314,7 @@
             }
         }
 
-        // Create app instance
         const app = new ARApp();
-
-        // Add click handler to start button
         document.getElementById('start-button').addEventListener('click', () => {
             app.requestPermissions();
         });
