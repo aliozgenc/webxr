@@ -2,25 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Web App with SLAM</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Plane Detection with OpenCV.js</title>
+    <script async src="https://docs.opencv.org/4.5.5/opencv.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
-        #hit-button {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 15px 30px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 18px;
-            z-index: 100;
-            display: none;
-        }
+        #canvasOutput { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; }
         #start-button {
             position: fixed;
             top: 50%;
@@ -33,16 +21,6 @@
             border-radius: 5px;
             font-size: 20px;
             z-index: 100;
-        }
-        #video-feed {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            z-index: -1;
-            display: none;
         }
         #debug-info {
             position: fixed;
@@ -57,198 +35,139 @@
     </style>
 </head>
 <body>
+    <canvas id="canvasOutput"></canvas>
     <button id="start-button">Start AR</button>
-    <video id="video-feed" playsinline autoplay></video>
-    <button id="hit-button">Hit</button>
     <div id="debug-info"></div>
+
     <script>
         class ARApp {
             constructor() {
-                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-                this.scene = new THREE.Scene();
-                this.renderer = new THREE.WebGLRenderer({ alpha: true });
-                this.boxes = [];
-                this.raycaster = new THREE.Raycaster();
-                this.initialized = false;
-                this.worldRotation = new THREE.Quaternion();
-                this.worldPosition = new THREE.Vector3();
-                this.velocity = new THREE.Vector3();
-                this.lastTime = null;
-                this.map = []; // SLAM: yer işaretlerinin (kutuların) kayıtları
+                this.video = null;
+                this.canvas = document.getElementById('canvasOutput');
+                this.ctx = this.canvas.getContext('2d');
                 this.debugElement = document.getElementById('debug-info');
+
+                // OpenCV.js için gerekli değişkenler
+                this.src = null;
+                this.gray = null;
+                this.detector = null;
+                this.keypoints = new cv.KeyPointVector();
+                this.descriptors = new cv.Mat();
+                this.previousKeypoints = new cv.KeyPointVector();
+                this.previousDescriptors = new cv.Mat();
+                this.matcher = new cv.BFMatcher(cv.NORM_HAMMING, true);
+                this.matches = new cv.DMatchVector();
+
+                this.initialized = false;
+                this.detectedPlanes = [];
             }
 
             async init() {
                 if (this.initialized) return;
                 this.initialized = true;
 
-                this.renderer.setSize(window.innerWidth, window.innerHeight);
-                this.renderer.setPixelRatio(window.devicePixelRatio);
-                document.body.appendChild(this.renderer.domElement);
-
-                // Eksen yardımcıları (koordinat sistemi gösterimi)
-                const axesHelper = new THREE.AxesHelper(1);
-                this.scene.add(axesHelper);
-
-                // Işıklar
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-                this.scene.add(ambientLight);
-
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-                directionalLight.position.set(0, 1, 0);
-                this.scene.add(directionalLight);
-
-                // Zemin düzlemi
-                const planeGeometry = new THREE.PlaneGeometry(1000, 1000); // SLAM için büyük zemin
-                const planeMaterial = new THREE.MeshBasicMaterial({
-                    color: 0xffffff, // Test için beyaz zemin
-                    side: THREE.DoubleSide,
-                    visible: true // Görünür yapıldı
-                });
-                this.plane = new THREE.Mesh(planeGeometry, planeMaterial);
-                this.plane.rotateX(-Math.PI / 2); // Yere paralel yapmak için
-                this.scene.add(this.plane);
-
-                this.setupEventListeners();
-                this.animate();
-            }
-
-            setupEventListeners() {
-                window.addEventListener('deviceorientation', (event) => {
-                    // İlk rotasyonu kaydet
-                    const alpha = event.alpha * Math.PI / 180;
-                    const beta = event.beta * Math.PI / 180;
-                    const gamma = event.gamma * Math.PI / 180;
-
-                    const rotation = new THREE.Euler(beta, gamma, alpha, 'ZXY');
-                    this.worldRotation.setFromEuler(rotation);
-
-                    this.camera.quaternion.copy(this.worldRotation);
-                    this.updateDebugInfo({ orientation: { alpha: event.alpha, beta: event.beta, gamma: event.gamma } });
-                }, true);
-
-                window.addEventListener('devicemotion', (event) => {
-                    const now = performance.now();
-                    if (!this.lastTime) {
-                        this.lastTime = now;
-                        return;
-                    }
-                    const deltaTime = (now - this.lastTime) / 1000;
-                    this.lastTime = now;
-
-                    const acc = event.accelerationIncludingGravity;
-                    if (!acc || acc.x === null) return;
-
-                    const acceleration = new THREE.Vector3(acc.x, acc.y, -acc.z);
-                    acceleration.sub(new THREE.Vector3(0, -9.81, 0)); // Yerçekimi çıkarılıyor
-                    acceleration.applyQuaternion(this.worldRotation);
-
-                    this.velocity.add(acceleration.multiplyScalar(deltaTime));
-
-                    const damping = 0.95;
-                    this.velocity.multiplyScalar(damping);
-
-                    const deltaPosition = this.velocity.clone().multiplyScalar(deltaTime);
-                    this.worldPosition.add(deltaPosition);
-                    this.camera.position.copy(this.worldPosition);
-
-                    this.updateDebugInfo({
-                        position: this.worldPosition.toArray(),
-                        velocity: this.velocity.toArray(),
-                        acceleration: acceleration.toArray()
-                    });
-                }, true);
-
-                document.getElementById('hit-button').addEventListener('click', () => {
-                    this.placeBox();
+                // Kamera akışını başlat
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' }
                 });
 
-                window.addEventListener('resize', () => {
-                    this.camera.aspect = window.innerWidth / window.innerHeight;
-                    this.camera.updateProjectionMatrix();
-                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.video = document.createElement('video');
+                this.video.srcObject = stream;
+                this.video.play();
+
+                this.video.addEventListener('loadedmetadata', () => {
+                    this.canvas.width = this.video.videoWidth;
+                    this.canvas.height = this.video.videoHeight;
+                    this.src = new cv.Mat(this.video.videoHeight, this.video.videoWidth, cv.CV_8UC4);
+                    this.gray = new cv.Mat(this.video.videoHeight, this.video.videoWidth, cv.CV_8UC1);
+                    this.detector = new cv.ORB();
+                    this.animate();
                 });
             }
 
-            placeBox() {
-                this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-                const intersects = this.raycaster.intersectObject(this.plane);
-                
-                if (intersects.length > 0) {
-                    const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-                    const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-                    const box = new THREE.Mesh(geometry, material);
+            detectFeatures() {
+                // Video karesini canvas'a al ve OpenCV ile işle
+                this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+                let imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                this.src.data.set(imageData.data);
 
-                    const worldIntersectionPoint = intersects[0].point;
-                    box.position.copy(worldIntersectionPoint);
+                // Gri seviyeye dönüştür
+                cv.cvtColor(this.src, this.gray, cv.COLOR_RGBA2GRAY, 0);
 
-                    // Kutunun dünya pozisyonu ve rotasyonu sabitleniyor
-                    box.userData.worldPosition = worldIntersectionPoint.clone();
-                    box.userData.worldRotation = this.worldRotation.clone();
+                // Özellik noktalarını tespit et
+                this.detector.detectAndCompute(this.gray, new cv.Mat(), this.keypoints, this.descriptors);
 
-                    this.scene.add(box);
-                    this.boxes.push(box);
+                // Eğer önceden kaydedilmiş noktalar varsa eşleştir
+                if (this.previousKeypoints.size() > 0) {
+                    this.matcher.match(this.descriptors, this.previousDescriptors, this.matches);
 
-                    // SLAM: Kutuyu kaydet
-                    this.map.push({
-                        position: worldIntersectionPoint.clone(),
-                        rotation: this.worldRotation.clone()
-                    });
-
-                    this.updateDebugInfo({ lastBoxPosition: worldIntersectionPoint.toArray() });
-                } else {
-                    this.updateDebugInfo({ error: "Raycaster intersect failed" });
+                    // Homografi hesapla ve düzlem tespit et
+                    this.detectPlanes();
                 }
+
+                // Yeni noktaları eski noktalar olarak sakla
+                this.previousKeypoints = this.keypoints.clone();
+                this.previousDescriptors = this.descriptors.clone();
             }
 
-            updateDebugInfo(info) {
-                this.debugElement.innerHTML = `
-                    Position: ${JSON.stringify(info.position || []).slice(0, 50)}<br>
-                    Orientation: ${JSON.stringify(info.orientation || {}).slice(0, 50)}<br>
-                    Last Box: ${JSON.stringify(info.lastBoxPosition || []).slice(0, 50)}<br>
-                    Error: ${info.error || ''}
-                `;
+            detectPlanes() {
+                if (this.matches.size() < 4) return; // Yeterli eşleşme olmalı
+
+                // Eşleşen noktaları al
+                let srcPoints = [];
+                let dstPoints = [];
+                for (let i = 0; i < this.matches.size(); i++) {
+                    let match = this.matches.get(i);
+                    let kp1 = this.keypoints.get(match.queryIdx).pt;
+                    let kp2 = this.previousKeypoints.get(match.trainIdx).pt;
+                    srcPoints.push(kp1);
+                    dstPoints.push(kp2);
+                }
+
+                // Homografi matrisi hesapla
+                let srcMat = cv.matFromArray(srcPoints.length, 1, cv.CV_32FC2, [].concat(...srcPoints));
+                let dstMat = cv.matFromArray(dstPoints.length, 1, cv.CV_32FC2, [].concat(...dstPoints));
+                let homography = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
+
+                if (!homography.empty()) {
+                    // Homografi ile tespit edilen düzlemi üç.js sahnesine yerleştir
+                    this.addPlane(homography);
+                }
+
+                // Hafıza temizleme
+                srcMat.delete(); 
+                dstMat.delete();
+                homography.delete();
+            }
+
+            addPlane(homography) {
+                // Burada düzlemi oluşturabilir ve sahneye ekleyebiliriz
+                // Örneğin, homografi matrisine göre bir üç.js plane mesh ekleyebiliriz.
+                const planeGeometry = new THREE.PlaneGeometry(5, 5);
+                const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
+                const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+                plane.position.set(0, 0, -5); // Sabit bir düzlem pozisyonu, homografi verilerine göre değiştirilebilir.
+                this.detectedPlanes.push(plane);
             }
 
             animate() {
                 requestAnimationFrame(() => this.animate());
-
-                // Kutu pozisyonu ve rotasyonu sabit kaldığı için her animasyon döngüsünde güncellenmiyor
-
-                this.renderer.render(this.scene, this.camera);
+                this.detectFeatures();
+                this.updateDebugInfo();
             }
 
-            async requestPermissions() {
-                try {
-                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                        const orientationPermission = await DeviceOrientationEvent.requestPermission();
-                        if (orientationPermission !== 'granted') {
-                            throw new Error('Orientation access denied');
-                        }
-                    }
-
-                    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                        const motionPermission = await DeviceMotionEvent.requestPermission();
-                        if (motionPermission !== 'granted') {
-                            throw new Error('Motion access denied');
-                        }
-                    }
-
-                    this.init();
-                    document.getElementById('hit-button').style.display = 'block';
-                } catch (error) {
-                    console.error(error);
-                    this.updateDebugInfo({ error: error.message });
-                }
+            updateDebugInfo() {
+                this.debugElement.innerHTML = `
+                    Detected Planes: ${this.detectedPlanes.length}<br>
+                    Keypoints: ${this.keypoints.size()}<br>
+                `;
             }
         }
 
         const app = new ARApp();
-
         document.getElementById('start-button').addEventListener('click', () => {
-            app.requestPermissions();
+            app.init();
             document.getElementById('start-button').style.display = 'none';
-            document.getElementById('video-feed').style.display = 'block';
         });
     </script>
 </body>
