@@ -20,9 +20,19 @@
             font-size: 18px;
             z-index: 100;
         }
+        #video-feed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+        }
     </style>
 </head>
 <body>
+    <video id="video-feed" playsinline autoplay></video>
     <button id="hit-button">Hit</button>
     <script>
         class ARApp {
@@ -98,7 +108,6 @@
                     this.timestamp = Date.now();
 
                     // Basic position tracking using double integration
-                    // Remove gravity component and apply basic low-pass filter
                     const alpha = 0.8;
                     this.lastAccel.x = alpha * this.lastAccel.x + (1 - alpha) * acceleration.x;
                     this.lastAccel.y = alpha * this.lastAccel.y + (1 - alpha) * (acceleration.y - 9.81);
@@ -158,33 +167,40 @@
 
             async requestPermissions() {
                 try {
-                    // Request camera access
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    // Get list of available video devices
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const videoDevices = devices.filter(device => device.kind === 'videoinput');
                     
-                    // Create video element for camera feed
-                    const video = document.createElement('video');
-                    video.srcObject = stream;
-                    video.play();
-                    
-                    // Create canvas for camera feed
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.style.position = 'fixed';
-                    canvas.style.top = '0';
-                    canvas.style.left = '0';
-                    canvas.style.width = '100%';
-                    canvas.style.height = '100%';
-                    canvas.style.zIndex = '-1';
-                    document.body.appendChild(canvas);
-                    
-                    // Update canvas with camera feed
-                    const updateCanvas = () => {
-                        canvas.width = window.innerWidth;
-                        canvas.height = window.innerHeight;
-                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                        requestAnimationFrame(updateCanvas);
+                    // Find back camera
+                    const backCamera = videoDevices.find(device => 
+                        device.label.toLowerCase().includes('back') || 
+                        device.label.toLowerCase().includes('rear') ||
+                        device.label.toLowerCase().includes('environment')
+                    );
+
+                    // Configure constraints for back camera
+                    const constraints = {
+                        video: {
+                            deviceId: backCamera ? { exact: backCamera.deviceId } : undefined,
+                            facingMode: backCamera ? undefined : 'environment',
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                        }
                     };
-                    updateCanvas();
+
+                    // Get video stream
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    // Set up video element
+                    const video = document.getElementById('video-feed');
+                    video.srcObject = stream;
+                    
+                    // Wait for video to be ready
+                    await new Promise((resolve) => {
+                        video.onloadedmetadata = () => {
+                            video.play().then(resolve);
+                        };
+                    });
 
                     // Request motion sensor permissions if needed
                     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -196,13 +212,16 @@
 
                 } catch (error) {
                     console.error('Error accessing camera or sensors:', error);
+                    alert('Error accessing camera: ' + error.message);
                 }
             }
         }
 
-        // Start the app
-        const app = new ARApp();
-        app.requestPermissions();
+        // Start the app when page is loaded
+        window.addEventListener('load', () => {
+            const app = new ARApp();
+            app.requestPermissions();
+        });
     </script>
 </body>
 </html>
