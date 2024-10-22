@@ -8,7 +8,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
-        #canvasOutput { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; }
+        #canvasOutput { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; }
         #start-button {
             position: fixed;
             top: 50%;
@@ -42,7 +42,7 @@
     <script>
         class ARApp {
             constructor() {
-                this.video = null;
+                this.video = document.createElement('video');
                 this.canvas = document.getElementById('canvasOutput');
                 this.ctx = this.canvas.getContext('2d');
                 this.debugElement = document.getElementById('debug-info');
@@ -71,7 +71,6 @@
                     video: { facingMode: 'environment' }
                 });
 
-                this.video = document.createElement('video');
                 this.video.srcObject = stream;
                 this.video.play();
 
@@ -81,6 +80,11 @@
                     this.src = new cv.Mat(this.video.videoHeight, this.video.videoWidth, cv.CV_8UC4);
                     this.gray = new cv.Mat(this.video.videoHeight, this.video.videoWidth, cv.CV_8UC1);
                     this.detector = new cv.ORB();
+                    this.animate();
+                });
+
+                // Video açıldığında kaydırma için ayarlamalar yap
+                this.video.addEventListener('play', () => {
                     this.animate();
                 });
             }
